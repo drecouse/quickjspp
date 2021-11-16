@@ -75,7 +75,7 @@
 /* enable stack limitation */
 #define CONFIG_STACK_CHECK
 #endif
-
+#undef CONFIG_STACK_CHECK
 
 /* dump object free */
 //#define DUMP_FREE
