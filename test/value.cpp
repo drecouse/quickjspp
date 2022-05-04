@@ -20,8 +20,6 @@ int main()
         assert(val1 == val2);
 
         val1 = std::move(val2);
-        assert(val1 != val2);
-
         assert(val1.as<std::string>() == "123");
 
         assert((double) val1 == 123.0);
@@ -54,6 +52,27 @@ int main()
 
         qjs::Value one = val1["a"];
         assert((int)one == 1);
+
+        assert(val1.toJSON() == val2.toJSON());
+
+        val1["b"] = context.newObject();
+        val1["b"][2] = 2;
+        assert((int)val1["b"][2] == 2);
+
+        assert(val1.toJSON() == context.fromJSON(val1.toJSON(JS_UNDEFINED, context.newValue("\t"))).toJSON());
+
+        assert(val1.toJSON() == "{\"a\":\"1\",\"b\":{\"2\":2}}");
+
+        assert(val1 == context.global()["val1"]);
+
+        auto str = val1.toJSON();
+        assert(str == (std::string) context.eval(R"xxx(
+        val1 = new Object();
+        val1["a"] = "1";
+        val1["b"] = new Object();
+        val1["b"][2] = 2;
+        JSON.stringify(val1)
+        )xxx"));
     }
     catch(qjs::exception)
     {

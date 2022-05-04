@@ -1,4 +1,5 @@
 #include "quickjspp.hpp"
+#include "quickjs/quickjs-libc.h"
 #include <iostream>
 
 
@@ -37,8 +38,8 @@ public:
     { printf("dtor!\n"); }
 
     int32_t fi(TYPES) const { i++; return i; }
-    bool fb(TYPES) noexcept { i++; return b; }
-    double fd(TYPES) const noexcept { i++; return d; }
+    bool fb(TYPES) { i++; return b; }
+    double fd(TYPES) const { i++; return d; }
     const std::shared_ptr<test>& fspt(TYPES) { i++; return spt; }
     const std::string& fs(TYPES) { i++; return s; }
     void f(TYPES) { i++; }
@@ -118,14 +119,15 @@ int main()
         context.eval(str, "<input>", JS_EVAL_TYPE_MODULE);
 
 
-        context.global().add("assert", [](bool t) { if(!t) std::exit(2); });
+        context.global()["assert"] = [](bool t) { if(!t) std::exit(2); };
 
 
         auto xxx = context.eval("\"use strict\";"
                                 "var b = new test.base_test();"
                                 "b.base_field = [[5],[1,2,3,4],[6]];"
                                 "assert(b.base_field[1][3] === 4);"
-                                "assert(b.base_method() === 5);"
+                                "assert(b.base_method(123) === 5);"
+                                "assert(b.base_field[0][0] === 123);"
 
                                 "var t = new test.TestSimple(12);"
                                 "var q = new test.Test(13, t.vb, t.vi, t.vd, t, t, t.vs, t.vs);"
