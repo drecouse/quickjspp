@@ -1819,7 +1819,7 @@ struct js_traits<std::function<R(Args...)>, int>
 {
     static auto unwrap(JSContext * ctx, JSValueConst fun_obj)
     {
-        const int argc = sizeof...(Args);
+        constexpr int argc = sizeof...(Args);
         if constexpr(argc == 0)
         {
             return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}]() -> R {
@@ -1832,7 +1832,6 @@ struct js_traits<std::function<R(Args...)>, int>
         else
         {
             return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
-                const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
                 JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc,
