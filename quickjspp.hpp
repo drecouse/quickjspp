@@ -1287,6 +1287,7 @@ public:
     }
 
     Value(JSValue&& v) noexcept : v(std::move(v)), ctx(nullptr) {}
+    Value(JSContext * ctx, JSValue v) noexcept : v(std::move(v)), ctx(ctx) {}
 
     Value(const Value& rhs) noexcept
     {
@@ -1571,11 +1572,16 @@ public:
             return *this;
         }
 
-
         template <typename T>
         Module& add(const char * name, T&& value)
         {
             return add(name, js_traits<T>::wrap(ctx, std::forward<T>(value)));
+        }
+
+        template <typename T>
+        Module& addPtr(const char* name, T value)
+        {
+            return add(name, js_traits<T>::wrap(ctx, value));
         }
 
         Module(const Module&) = delete;
@@ -1607,7 +1613,7 @@ public:
         }
 
         // class register wrapper
-    private:
+    public:
         /** Helper class to register class members and constructors.
          * See fun, constructor.
          * Actual registration occurs at object destruction.
