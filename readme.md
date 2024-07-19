@@ -1,6 +1,11 @@
 QuickJSPP is QuickJS wrapper for C++. It allows you to easily embed Javascript engine into your program.
 
-QuickJS is a small and embeddable Javascript engine. It supports the ES2020 specification including modules, asynchronous generators and proxies. More info: <https://bellard.org/quickjs/>
+QuickJS is a small and embeddable Javascript engine. It supports the ES2022 specification including modules, asynchronous generators and proxies. More info: <https://bellard.org/quickjs/>
+
+# Changes
+ - small fixes
+ - change to quickjs-ng: https://github.com/quickjs-ng/quickjs, the compatible version is on https://github.com/drecouse/quickjs
+ - prebuilt quickjs for windows
 
 # Example
 ```cpp
