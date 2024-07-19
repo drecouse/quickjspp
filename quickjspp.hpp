@@ -397,10 +397,10 @@ struct js_traits<std::variant<Ts...>>
             case JS_TAG_BOOL:
                 return is_boolean<T>::value || std::is_integral_v<T> || std::is_floating_point_v<T>;
 
-            case JS_TAG_BIG_DECIMAL:
-                [[fallthrough]];
-            case JS_TAG_BIG_FLOAT:
-                [[fallthrough]];
+            //case JS_TAG_BIG_DECIMAL:
+            //    [[fallthrough]];
+            //case JS_TAG_BIG_FLOAT:
+            //    [[fallthrough]];
             case JS_TAG_FLOAT64:
             default: // >JS_TAG_FLOAT64 (JS_NAN_BOXING)
                 return is_double<T>::value || std::is_floating_point_v<T>;
@@ -465,10 +465,10 @@ struct js_traits<std::variant<Ts...>>
             case JS_TAG_EXCEPTION:
                 break;
 
-            case JS_TAG_BIG_DECIMAL:
-                [[fallthrough]];
-            case JS_TAG_BIG_FLOAT:
-                [[fallthrough]];
+            //case JS_TAG_BIG_DECIMAL:
+            //    [[fallthrough]];
+            //case JS_TAG_BIG_FLOAT:
+            //    [[fallthrough]];
 
             case JS_TAG_FLOAT64:
                 [[fallthrough]];
@@ -881,11 +881,11 @@ struct js_traits<std::shared_ptr<T>>
      */
     static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
     {
+        auto rt = JS_GetRuntime(ctx);
         if(QJSClassId == 0)
         {
-            JS_NewClassID(&QJSClassId);
+            JS_NewClassID(rt, &QJSClassId);
         }
-        auto rt = JS_GetRuntime(ctx);
         if(!JS_IsRegisteredClass(rt, QJSClassId))
         {
             JSClassGCMark * marker = nullptr;
@@ -1071,11 +1071,11 @@ struct js_traits<detail::function>
     // TODO: replace ctx with rt
     static void register_class(JSContext * ctx, const char * name)
     {
+        auto rt = JS_GetRuntime(ctx);
         if(QJSClassId == 0)
         {
-            JS_NewClassID(&QJSClassId);
+            JS_NewClassID(rt, &QJSClassId);
         }
-        auto rt = JS_GetRuntime(ctx);
         if(JS_IsRegisteredClass(rt, QJSClassId))
             return;
         JSClassDef def{
@@ -1777,11 +1777,12 @@ public:
     }
 
     /// @see JS_ParseJSON2
-    Value fromJSON(std::string_view buffer, const char * filename = "<fromJSON>", int flags = 0)
+    Value fromJSON(std::string_view buffer, const char * filename = "<fromJSON>", int flags = 0 /* unused */)
     {
         assert(buffer.data()[buffer.size()] == '\0' &&
                "fromJSON buffer is not null-terminated"); // JS_ParseJSON requirement
-        return Value{ctx, JS_ParseJSON2(ctx, buffer.data(), buffer.size(), filename, flags)};
+        //return Value{ctx, JS_ParseJSON2(ctx, buffer.data(), buffer.size(), filename, flags)}; // JSON superset
+        return Value{ctx, JS_ParseJSON(ctx, buffer.data(), buffer.size(), filename)};
     }
 
     /** Get qjs::Context from JSContext opaque pointer */
