@@ -47,6 +47,15 @@ public:
     Value get();
 };
 
+/** std::shared_ptr, for compatibility with quickjspp v2. */
+template <class T> using shared_ptr = std::shared_ptr<T>;
+/** std::make_shared, for compatibility with quickjspp v2. */
+template <class T, typename... Args>
+shared_ptr<T> make_shared(JSContext *, Args&&... args)
+{
+    return std::make_shared<T>(std::forward<Args>(args)...);
+}
+
 /** Javascript conversion traits.
  * Describes how to convert type R to/from JSValue. Second template argument can be used for SFINAE/enable_if type filters.
  */
@@ -58,13 +67,13 @@ struct js_traits
      * @param v This value is passed as JSValueConst so it should be freed by the caller.
      * @throws exception in case of conversion error
      */
-    static R unwrap(JSContext * ctx, JSValueConst v);
+    static R unwrap(JSContext * ctx, JSValueConst v) = delete;
 
     /** Create JSValue from an object of type R and JSContext.
      * This function is intentionally not implemented. User should implement this function for their own type.
      * @return Returns JSValue which should be freed by the caller or JS_EXCEPTION in case of error.
      */
-    static JSValue wrap(JSContext * ctx, R value);
+    static JSValue wrap(JSContext * ctx, R value) = delete;
 };
 
 /** Conversion traits for JSValue (identity).
@@ -877,9 +886,12 @@ struct js_traits<std::shared_ptr<T>>
      * @param ctx context
      * @param name class name
      * @param proto class prototype or JS_NULL
+     * @param call QJS call function. see quickjs doc
+     * @param exotic pointer to QJS exotic methods(static lifetime) which allow custom property handling. see quickjs doc
      * @throws exception
      */
-    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL)
+    static void register_class(JSContext * ctx, const char * name, JSValue proto = JS_NULL,
+                               JSClassCall * call = nullptr, JSClassExoticMethods * exotic = nullptr)
     {
         auto rt = JS_GetRuntime(ctx);
         if(QJSClassId == 0)
@@ -912,9 +924,9 @@ struct js_traits<std::shared_ptr<T>>
                     // mark
                     marker,
                     // call
-                    nullptr,
+                    call,
                     // exotic
-                    nullptr
+                    exotic
             };
             int e = JS_NewClass(rt, QJSClassId, &def);
             if(e < 0)
@@ -1021,7 +1033,20 @@ struct js_traits<T *, std::enable_if_t<std::is_class_v<T>>>
             return nullptr;
         }
         auto ptr = js_traits<std::shared_ptr<T>>::unwrap(ctx, v);
-        return ptr->get();
+        return ptr.get();
+    }
+};
+
+/** Conversions for enums. */
+template <typename E>
+struct js_traits<E, std::enable_if_t<std::is_enum_v<E>>> {
+    using T = std::underlying_type_t<E>;
+    static E unwrap(JSContext* ctx, JSValue v) noexcept {
+        return static_cast<E>(js_traits<T>::unwrap(ctx, v));
+    }
+
+    static JSValue wrap(JSContext* ctx, E t) noexcept {
+        return js_traits<T>::wrap(ctx, static_cast<T>(t));;
     }
 };
 
@@ -1200,6 +1225,7 @@ struct property_proxy
 template <auto M>
 struct get_set {};
 
+// M -  member object
 template <class T, typename R, R T::*M>
 struct get_set<M>
 {
@@ -1213,6 +1239,24 @@ struct get_set<M>
     static R& set(std::shared_ptr<T> ptr, R value)
     {
         return *ptr.*M = std::move(value);
+    }
+
+};
+
+// M - static member object
+template <typename R, R *M>
+struct get_set<M>
+{
+    using is_const = std::is_const<R>;
+
+    static const R& get(bool)
+    {
+        return *M;
+    }
+
+    static R& set(bool, R value)
+    {
+        return *M = std::move(value);
     }
 
 };
@@ -1328,7 +1372,7 @@ public:
     // add<&f>("f");
     // add<&T::f>("f");
     template <auto F>
-    std::enable_if_t<!std::is_member_object_pointer_v<decltype(F)>, Value&>
+    std::enable_if_t<std::is_member_function_pointer_v<decltype(F)> || std::is_function_v<std::remove_pointer_t<decltype(F)>>, Value&>
     add(const char * name)
     {
         (*this)[name] = fwrapper<F>{name};
@@ -1376,13 +1420,20 @@ public:
     add(const char * name)
     {
         if constexpr (detail::get_set<M>::is_const::value)
-        {
             return add_getter<detail::get_set<M>::get>(name);
-        }
         else
-        {
             return add_getter_setter<detail::get_set<M>::get, detail::get_set<M>::set>(name);
-        }
+    }
+
+    // add<&T::static_member>("static_member");
+    template <auto M>
+    std::enable_if_t<std::is_pointer_v<decltype(M)> && !std::is_function_v<std::remove_pointer_t<decltype(M)>> , Value&>
+    add(const char * name)
+    {
+        if constexpr (detail::get_set<M>::is_const::value)
+            return add_getter<detail::get_set<M>::get>(name);
+        else
+            return add_getter_setter<detail::get_set<M>::get, detail::get_set<M>::set>(name);
     }
 
     std::string
@@ -1568,12 +1619,14 @@ public:
             qjs::Value prototype;
             qjs::Context::Module& module;
             qjs::Context& context;
+            qjs::Value ctor; // last added constructor
         public:
             explicit class_registrar(const char * name, qjs::Context::Module& module, qjs::Context& context) :
                     name(name),
                     prototype(context.newObject()),
                     module(module),
-                    context(context)
+                    context(context),
+                    ctor(JS_NULL)
             {
             }
 
@@ -1602,6 +1655,24 @@ public:
                 return *this;
             }
 
+            /** Add a static member or function to the last added constructor.
+             * Example:
+             *  struct T { static int var; static int func(); }
+             *  module.class_<T>("T").contructor<>("T").static_fun<&T::var>("var").static_fun<&T::func>("func");
+             */
+            template <auto F>
+            class_registrar& static_fun(const char * name)
+            {
+                assert(!JS_IsNull(ctor.v) && "You should call .constructor before .static_fun");
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<F>();
+                ctor.add<F>(name);
+                return *this;
+            }
+
+            /** Add a property with custom getter and setter.
+             * Example:
+             * module.class_<T>("T").property<&T::getX, &T::setX>("x");
+             */
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
@@ -1623,9 +1694,9 @@ public:
             {
                 if(!name)
                     name = this->name;
-                Value ctor = context.newValue(qjs::ctor_wrapper<T, Args...>{name});
+                ctor = context.newValue(qjs::ctor_wrapper<T, Args...>{name});
                 JS_SetConstructor(context.ctx, ctor.v, prototype.v);
-                module.add(name, std::move(ctor));
+                module.add(name, qjs::Value{ctor});
                 return *this;
             }
 
@@ -1833,6 +1904,7 @@ struct js_traits<std::function<R(Args...)>, int>
         else
         {
             return [jsfun_obj = Value{ctx, JS_DupValue(ctx, fun_obj)}](Args&& ... args) -> R {
+                const int argc = sizeof...(Args);
                 JSValue argv[argc];
                 detail::wrap_args(jsfun_obj.ctx, argv, std::forward<Args>(args)...);
                 JSValue result = JS_Call(jsfun_obj.ctx, jsfun_obj.v, JS_UNDEFINED, argc,
