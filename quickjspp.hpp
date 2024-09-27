@@ -856,23 +856,24 @@ struct js_traits<std::shared_ptr<T>>
     template <typename B>
     static
     std::enable_if_t<std::is_same_v<B, T> || std::is_same_v<B, void>>
-    ensureCanCastToBase() { }
+    ensureCanCastToBase(JSContext*) { }
 
     template <typename B>
     static
     std::enable_if_t<!std::is_same_v<B, T> && !std::is_same_v<B, void>>
-    ensureCanCastToBase() {
+    ensureCanCastToBase(JSContext* ctx) {
         static_assert(std::is_base_of_v<B, T>, "Type is not a derived class");
+        auto rt = JS_GetRuntime(ctx);
 
         if(js_traits<std::shared_ptr<T>>::QJSClassId == 0)
-            JS_NewClassID(&js_traits<std::shared_ptr<T>>::QJSClassId);
+            JS_NewClassID(rt, &js_traits<std::shared_ptr<T>>::QJSClassId);
 
         js_traits<std::shared_ptr<B>>::template registerDerivedClass<T>(QJSClassId, unwrap);
     }
 
     template <auto M>
-    static void ensureCanCastToBase() {
-        ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>();
+    static void ensureCanCastToBase(JSContext* ctx) {
+        ensureCanCastToBase<detail::class_from_member_pointer_t<decltype(M)>>(ctx);
     }
 
     /** Stores offsets to qjs::Value members of T.
@@ -1656,7 +1657,7 @@ public:
             template <auto F>
             class_registrar& fun(const char * name)
             {
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<F>();
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<F>(context.ctx);
                 prototype.add<F>(name);
                 return *this;
             }
@@ -1670,7 +1671,7 @@ public:
             class_registrar& static_fun(const char * name)
             {
                 assert(!JS_IsNull(ctor.v) && "You should call .constructor before .static_fun");
-                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<F>();
+                js_traits<qjs::shared_ptr<T>>::template ensureCanCastToBase<F>(context.ctx);
                 ctor.add<F>(name);
                 return *this;
             }
@@ -1682,8 +1683,8 @@ public:
             template <auto FGet, auto FSet = nullptr>
             class_registrar& property(const char * name)
             {
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FGet>();
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FSet>();
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FGet>(context.ctx);
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<FSet>(context.ctx);
                 if constexpr (std::is_same_v<decltype(FSet), std::nullptr_t>)
                     prototype.add_getter<FGet>(name);
                 else
@@ -1714,7 +1715,7 @@ public:
             {
                 static_assert(!std::is_same_v<B, T>, "Type cannot be a base of itself");
                 assert(js_traits<std::shared_ptr<B>>::QJSClassId && "base class is not registered");
-                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<B>();
+                js_traits<std::shared_ptr<T>>::template ensureCanCastToBase<B>(context.ctx);
                 auto base_proto = JS_GetClassProto(context.ctx, js_traits<std::shared_ptr<B>>::QJSClassId);
                 int err = JS_SetPrototype(context.ctx, prototype.v, base_proto);
                 JS_FreeValue(context.ctx, base_proto);
