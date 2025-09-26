@@ -325,7 +325,7 @@ struct js_traits<std::variant<Ts...>>
 
         if constexpr (is_vector<U>::value)
         {
-            if(JS_IsArray(ctx, v) == 1)
+            if(JS_IsArray(v) == 1)
             {
                 auto firstElement = JS_GetPropertyUint32(ctx, v, 0);
                 bool ok = isCompatible<std::decay_t<typename U::value_type>>(ctx, firstElement);
@@ -339,7 +339,7 @@ struct js_traits<std::variant<Ts...>>
 
         if constexpr (is_pair<U>::value)
         {
-            if(JS_IsArray(ctx, v) == 1)
+            if(JS_IsArray(v) == 1)
             {
                 // todo: check length?
                 auto firstElement = JS_GetPropertyUint32(ctx, v, 0);
@@ -390,7 +390,7 @@ struct js_traits<std::variant<Ts...>>
             case JS_TAG_FUNCTION_BYTECODE:
                 return std::is_function<T>::value;
             case JS_TAG_OBJECT:
-                if(JS_IsArray(ctx, v) == 1)
+                if(JS_IsArray(v) == 1)
                     return is_vector<T>::value || is_pair<T>::value;
                 if constexpr (is_shared_ptr<T>::value)
                 {
@@ -1471,6 +1471,7 @@ public:
         if(!rt)
             throw std::runtime_error{"qjs: Cannot create runtime"};
 
+        JS_SetMaxStackSize(rt, 0); // Fix stack size not getting initialized and set no limit
         JS_SetHostUnhandledPromiseRejectionTracker(rt, promise_unhandled_rejection_tracker, NULL);
         JS_SetModuleLoaderFunc(rt, nullptr, module_loader, nullptr);
     }
@@ -1492,7 +1493,7 @@ public:
 
 private:
     static void promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
-                                                    JSValueConst reason, JS_BOOL is_handled, void *opaque);
+                                                    JSValueConst reason, bool is_handled, void *opaque);
 
     static JSModuleDef *module_loader(JSContext *ctx,
                                       const char *module_name, void *opaque);
@@ -2024,7 +2025,7 @@ struct js_traits<std::vector<T>>
 
     static std::vector<T> unwrap(JSContext * ctx, JSValueConst jsarr)
     {
-        int e = JS_IsArray(ctx, jsarr);
+        int e = JS_IsArray(jsarr);
         if(e == 0)
             JS_ThrowTypeError(ctx, "js_traits<std::vector<T>>::unwrap expects array");
         if(e <= 0)
@@ -2070,7 +2071,7 @@ struct js_traits<std::pair<U, V>>
 
     static std::pair<U, V> unwrap(JSContext * ctx, JSValueConst jsarr)
     {
-        int e = JS_IsArray(ctx, jsarr);
+        int e = JS_IsArray(jsarr);
         if(e == 0)
             JS_ThrowTypeError(ctx, "js_traits<%s>::unwrap expects array", QJSPP_TYPENAME(std::pair<U, V>));
         if(e <= 0)
@@ -2172,7 +2173,7 @@ inline Value exception::get() {
 }
 
 inline void Runtime::promise_unhandled_rejection_tracker(JSContext *ctx, JSValueConst promise,
-                                                         JSValueConst reason, JS_BOOL is_handled, void *opaque)
+                                                         JSValueConst reason, bool is_handled, void *opaque)
 {
     auto & context = Context::get(ctx);
     if (context.onUnhandledPromiseRejection) {
